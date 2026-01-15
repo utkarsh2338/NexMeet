@@ -1,0 +1,55 @@
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: #fff;
+
+  background:
+    linear-gradient(rgba(0, 255, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 255, 0.07) 1px, transparent 1px),
+    radial-gradient(circle at 70% 20%, rgba(255, 0, 150, 0.18), transparent 40%),
+    radial-gradient(circle at 20% 80%, rgba(0, 255, 150, 0.15), transparent 45%),
+    linear-gradient(135deg, #050816, #070B1A);
+
+  background-size: 60px 60px, 60px 60px, auto, auto, auto;
+}
+
+.page {
+  min-height: 100vh;
+  padding: 40px;
+
+  /* overlay card effect */
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(10px);
+
+  border-radius: 16px;
+}
+.landingPageContainer nav {
+  padding-inline:1.2rem;
+  padding-block: 1.6rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+}
+.landingPageContainer nav h2{
+  font-size: 1.8rem;
+  font-weight: 500;
+}
+.landingPageContainer nav .navList{
+  display: flex;
+  gap: 1.6rem;
+}
+.landingMainContainer{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-inline: 3rem;
+  gap: 2rem;
+}
+.landingPageContainer > div:nth-child(1){
+  
+}
+.landingPageContainer>div:nth-child(2) img{
+  height: 90vh;
+  width: auto;
+}
