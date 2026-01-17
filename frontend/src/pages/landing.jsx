@@ -53,7 +53,7 @@ export default function LandingPage() {
           fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
         }}>
           <h1 style={{
-            fontSize: "56px",
+            fontSize: "clamp(2rem, 5vw, 3.5rem)",
             lineHeight: "1.1",
             margin: "0 0 18px",
             fontWeight: "800",
@@ -67,7 +67,7 @@ export default function LandingPage() {
           </h1>
 
           <p style={{
-            fontSize: "18px",
+            fontSize: "clamp(0.95rem, 2vw, 1.125rem)",
             lineHeight: "1.6",
             margin: "0 0 28px",
             color: "rgba(255,255,255,0.78)",
