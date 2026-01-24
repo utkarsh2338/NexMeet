@@ -4,74 +4,302 @@
     justify-content: center;
     align-items: center;
     padding: 20px;
+    position: relative;
 }
 
+/* Lobby Styles */
 .lobby-container {
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(10px);
-    border-radius: 16px;
-    padding: 40px;
-    min-width: 400px;
+    background: linear-gradient(135deg, rgba(0, 0, 0, 0.8), rgba(0, 20, 40, 0.7));
+    backdrop-filter: blur(20px);
+    border-radius: 24px;
+    padding: 48px;
+    min-width: 450px;
+    max-width: 550px;
     display: flex;
     flex-direction: column;
-    gap: 24px;
-    border: 1px solid rgba(0, 255, 255, 0.2);
-    box-shadow: 0 8px 32px rgba(0, 255, 255, 0.1);
+    gap: 28px;
+    border: 1px solid rgba(0, 255, 255, 0.3);
+    box-shadow:
+        0 20px 60px rgba(0, 255, 255, 0.15),
+        0 0 100px rgba(0, 150, 255, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    animation: slideUp 0.5s ease-out;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .lobby-container h2 {
     color: #fff;
     text-align: center;
-    font-size: 2rem;
+    font-size: 2.2rem;
     margin: 0;
-    font-weight: 500;
+    font-weight: 600;
+    background: linear-gradient(135deg, #00f5ff, #00ccff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: -0.5px;
 }
 
 .video-preview {
     width: 100%;
-    max-width: 500px;
-    border-radius: 12px;
+    border-radius: 16px;
     overflow: hidden;
-    border: 2px solid rgba(0, 255, 255, 0.3);
+    border: 2px solid rgba(0, 255, 255, 0.4);
     background: #000;
+    position: relative;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    transition: all 0.3s ease;
+}
+
+.video-preview:hover {
+    border-color: rgba(0, 255, 255, 0.6);
+    box-shadow: 0 15px 40px rgba(0, 255, 255, 0.2);
 }
 
 .video-preview video {
     width: 100%;
     height: auto;
     display: block;
-    min-height: 200px;
+    min-height: 280px;
+    object-fit: cover;
+}
+
+/* Meeting Room Styles */
+.meeting-room {
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: linear-gradient(135deg, #050816 0%, #0a0f1e 100%);
+}
+
+.meeting-header {
+    padding: 16px 24px;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(0, 255, 255, 0.1);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.meeting-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.meeting-title {
+    color: #fff;
+    font-size: 1.2rem;
+    font-weight: 500;
+    margin: 0;
+}
+
+.participant-count {
+    background: rgba(0, 255, 255, 0.2);
+    color: #00ffff;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.videos-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 16px;
+    padding: 20px;
+    overflow-y: auto;
+    align-content: start;
+}
+
+.video-container {
+    position: relative;
+    background: #000;
+    border-radius: 16px;
+    overflow: hidden;
+    aspect-ratio: 16/9;
+    border: 2px solid rgba(0, 255, 255, 0.2);
+    transition: all 0.3s ease;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.video-container:hover {
+    border-color: rgba(0, 255, 255, 0.5);
+    transform: translateY(-4px);
+    box-shadow: 0 12px 32px rgba(0, 255, 255, 0.2);
+}
+
+.video-container.local {
+    border-color: rgba(0, 255, 100, 0.3);
+}
+
+.video-container.local:hover {
+    border-color: rgba(0, 255, 100, 0.5);
+}
+
+.video-container video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.video-label {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(10px);
+    color: #fff;
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.video-label.you {
+    background: rgba(0, 255, 100, 0.3);
+    border-color: rgba(0, 255, 100, 0.4);
+}
+
+/* Controls */
+.meeting-controls {
+    padding: 20px 24px;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(20px);
+    border-top: 1px solid rgba(0, 255, 255, 0.1);
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.control-btn {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    font-size: 1.3rem;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.control-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: scale(1.1);
+    box-shadow: 0 4px 20px rgba(0, 255, 255, 0.3);
+}
+
+.control-btn.active {
+    background: rgba(0, 255, 255, 0.3);
+    border-color: rgba(0, 255, 255, 0.5);
+}
+
+.control-btn.danger {
+    background: rgba(255, 50, 50, 0.3);
+    border-color: rgba(255, 50, 50, 0.5);
+}
+
+.control-btn.danger:hover {
+    background: rgba(255, 50, 50, 0.5);
+    box-shadow: 0 4px 20px rgba(255, 50, 50, 0.4);
+}
+
+/* Loading Animation */
+.loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(0, 255, 255, 0.2);
+    border-top-color: #00ffff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* Responsive Design */
 @media screen and (max-width: 768px) {
     .video-meet-container {
-        padding: 15px;
+        padding: 10px;
     }
 
     .lobby-container {
         min-width: auto;
         width: 100%;
         max-width: 500px;
-        padding: 30px 20px;
+        padding: 32px 24px;
     }
 
     .lobby-container h2 {
-        font-size: 1.6rem;
+        font-size: 1.8rem;
+    }
+
+    .videos-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+        padding: 12px;
+    }
+
+    .meeting-header {
+        padding: 12px 16px;
+    }
+
+    .meeting-title {
+        font-size: 1rem;
+    }
+
+    .control-btn {
+        width: 48px;
+        height: 48px;
+        font-size: 1.1rem;
     }
 }
 
 @media screen and (max-width: 480px) {
-    .video-meet-container {
-        padding: 10px;
-    }
-
     .lobby-container {
-        padding: 25px 15px;
+        padding: 24px 16px;
         gap: 20px;
     }
 
     .lobby-container h2 {
-        font-size: 1.4rem;
+        font-size: 1.5rem;
+    }
+
+    .video-preview video {
+        min-height: 200px;
+    }
+
+    .meeting-controls {
+        padding: 16px;
+        gap: 12px;
     }
 }
