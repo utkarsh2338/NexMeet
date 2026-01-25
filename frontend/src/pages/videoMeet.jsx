@@ -38,14 +38,15 @@ const RemoteVideo = React.memo(({ video, index }) => {
         playsInline
       ></video>
       <div className="video-label">
-        <span>Participant {index + 1}</span>
+        <span>{video.username || `Participant ${index + 1}`}</span>
       </div>
     </div>
   );
 }, (prevProps, nextProps) => {
-  // Only re-render if the stream or socketId changes
+  // Only re-render if the stream, socketId, or username changes
   return prevProps.video.socketId === nextProps.video.socketId &&
-    prevProps.video.stream === nextProps.video.stream;
+    prevProps.video.stream === nextProps.video.stream &&
+    prevProps.video.username === nextProps.video.username;
 });
 
 export default function VideoMeet() {
@@ -129,6 +130,12 @@ export default function VideoMeet() {
     }
     window.localStream = stream;
     localVideoRef.current.srcObject = stream;
+
+    // Connect to socket server after we have the media stream
+    if (socketRef.current === undefined || !socketRef.current.connected) {
+      connectToSocketServer();
+    }
+
     for (let id in connections) {
       if (id === socketIdRef.current) continue;
       // Replace existing tracks
@@ -282,8 +289,8 @@ export default function VideoMeet() {
       console.log('Connected to socket server with ID:', socketRef.current.id);
       socketIdRef.current = socketRef.current.id;
 
-      // Emit join-call event to join the room
-      socketRef.current.emit('join-call', url || 'default-room');
+      // Emit join-call event to join the room with username
+      socketRef.current.emit('join-call', url || 'default-room', username);
     });
 
     socketRef.current.on('user-left', (id) => {
@@ -294,7 +301,7 @@ export default function VideoMeet() {
       }
     });
 
-    socketRef.current.on('user-joined', (id, clients) => {
+    socketRef.current.on('user-joined', (id, clients, usernames) => {
       clients.forEach((socketListId) => {
         // Skip creating connection to yourself
         if (socketListId === socketIdRef.current) {
@@ -313,6 +320,13 @@ export default function VideoMeet() {
 
           connections[socketListId].ontrack = (event) => {
             console.log("Received track from:", socketListId, event.streams[0]);
+
+            // Additional check: don't add your own stream
+            if (socketListId === socketIdRef.current) {
+              console.warn("Skipping own stream");
+              return;
+            }
+
             let videoExist = videoRef.current.find(video => video.socketId === socketListId);
             if (videoExist) {
               setVideos((videos) => {
@@ -327,7 +341,15 @@ export default function VideoMeet() {
               });
             }
             else {
-              let newVideo = { socketId: socketListId, stream: event.streams[0], autoPlay: true, playsInline: true };
+              // Get username for this socket ID
+              const participantUsername = usernames?.[socketListId] || 'Unknown';
+              let newVideo = {
+                socketId: socketListId,
+                stream: event.streams[0],
+                autoPlay: true,
+                playsInline: true,
+                username: participantUsername
+              };
               setVideos((videos) => {
                 const updatedVideos = [...videos, newVideo];
                 videoRef.current = updatedVideos;
@@ -382,10 +404,14 @@ export default function VideoMeet() {
   const getMedia = () => {
     setVideo(videoAvailable);
     setAudio(audioAvailable);
-    connectToSocketServer();
+    // Don't connect to socket server immediately - wait for media stream
   };
 
   const connect = () => {
+    if (!username.trim()) {
+      alert('Please enter a username');
+      return;
+    }
     setAskForUsername(false);
     getMedia();
   };
@@ -443,19 +469,30 @@ export default function VideoMeet() {
       try {
         const userMediaStream = await navigator.mediaDevices.getUserMedia({
           video: true,
-          audio: true
+          audio: false // Don't replace audio track
         });
 
-        window.localStream = userMediaStream;
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = userMediaStream;
+        // Preserve existing audio track
+        const audioTrack = window.localStream?.getAudioTracks()[0];
+        const videoTrack = userMediaStream.getVideoTracks()[0];
+
+        // Create new stream with video from camera and existing audio
+        const newStream = new MediaStream();
+        newStream.addTrack(videoTrack);
+        if (audioTrack) {
+          newStream.addTrack(audioTrack);
         }
 
-        // Update peer connections with camera stream
+        window.localStream = newStream;
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = newStream;
+        }
+
+        // Update peer connections with camera video stream only
         for (let id in connections) {
           const sender = connections[id].getSenders().find(s => s.track && s.track.kind === 'video');
           if (sender) {
-            sender.replaceTrack(userMediaStream.getVideoTracks()[0]);
+            sender.replaceTrack(videoTrack);
           }
         }
 
@@ -463,6 +500,7 @@ export default function VideoMeet() {
         setIsCameraOn(true);
       } catch (err) {
         console.error("Error switching back to camera:", err);
+        alert('Failed to switch back to camera. Please check your permissions.');
       }
     } else {
       // Start screen sharing
@@ -473,28 +511,45 @@ export default function VideoMeet() {
         });
 
         screenStreamRef.current = screenStream;
+        const screenTrack = screenStream.getVideoTracks()[0];
+
+        // Preserve existing audio track
+        const audioTrack = window.localStream?.getAudioTracks()[0];
+
+        // Create new stream with screen video and existing audio
+        const newStream = new MediaStream();
+        newStream.addTrack(screenTrack);
+        if (audioTrack) {
+          newStream.addTrack(audioTrack);
+        }
+
+        window.localStream = newStream;
 
         // Update local video
         if (localVideoRef.current) {
-          localVideoRef.current.srcObject = screenStream;
+          localVideoRef.current.srcObject = newStream;
         }
 
         // Update peer connections with screen stream
         for (let id in connections) {
           const sender = connections[id].getSenders().find(s => s.track && s.track.kind === 'video');
           if (sender) {
-            sender.replaceTrack(screenStream.getVideoTracks()[0]);
+            sender.replaceTrack(screenTrack);
           }
         }
 
         // Listen for when user stops sharing via browser UI
-        screenStream.getVideoTracks()[0].onended = () => {
+        screenTrack.onended = () => {
           toggleScreenShare();
         };
 
         setIsScreenSharing(true);
       } catch (err) {
         console.error("Error sharing screen:", err);
+        // User cancelled or denied permission - don't show alert for cancel
+        if (err.name !== 'NotAllowedError' && err.name !== 'AbortError') {
+          alert('Failed to share screen. Please check your permissions.');
+        }
       }
     }
   };
@@ -502,13 +557,28 @@ export default function VideoMeet() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
+      // Stop screen stream if active
+      if (screenStreamRef.current) {
+        screenStreamRef.current.getTracks().forEach(track => track.stop());
       }
+
+      // Stop local stream
       if (window.localStream) {
         window.localStream.getTracks().forEach(track => track.stop());
       }
-      Object.values(connections).forEach(conn => conn.close());
+
+      // Close all peer connections
+      Object.keys(connections).forEach(id => {
+        if (connections[id]) {
+          connections[id].close();
+          delete connections[id];
+        }
+      });
+
+      // Disconnect socket
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
     };
   }, []);
 
@@ -634,7 +704,41 @@ export default function VideoMeet() {
                 <button
                   className="control-btn danger"
                   title="Leave Meeting"
-                  onClick={() => setAskForUsername(true)}
+                  onClick={() => {
+                    // Stop screen stream if active
+                    if (screenStreamRef.current) {
+                      screenStreamRef.current.getTracks().forEach(track => track.stop());
+                      screenStreamRef.current = null;
+                    }
+
+                    // Stop local stream
+                    if (window.localStream) {
+                      window.localStream.getTracks().forEach(track => track.stop());
+                    }
+
+                    // Close all peer connections
+                    Object.keys(connections).forEach(id => {
+                      if (connections[id]) {
+                        connections[id].close();
+                        delete connections[id];
+                      }
+                    });
+
+                    // Disconnect socket
+                    if (socketRef.current) {
+                      socketRef.current.disconnect();
+                      socketRef.current = null;
+                    }
+
+                    // Reset state
+                    setVideos([]);
+                    setMessages([]);
+                    setIsScreenSharing(false);
+                    setIsChatOpen(false);
+
+                    // Return to lobby
+                    setAskForUsername(true);
+                  }}
                 >
                   <MdCallEnd size={24} />
                 </button>

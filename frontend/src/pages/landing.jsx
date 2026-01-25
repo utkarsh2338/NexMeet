@@ -1,9 +1,10 @@
 import React from 'react'
 import '../App.css'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { SignedIn, SignedOut, SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
 
 export default function LandingPage() {
+  const navigate = useNavigate();
   return (
     <div className='landingPageContainer'>
       <nav>
@@ -76,8 +77,34 @@ export default function LandingPage() {
             Experience seamless virtual meetings with NexMeet - your all-in-one platform for video conferencing, collaboration, and productivity.
           </p>
 
-          <SignUpButton mode="modal">
+          <SignedOut>
+            <SignUpButton mode="modal">
+              <button
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "14px 26px",
+                  borderRadius: "14px",
+                  cursor: "pointer",
+                  userSelect: "none",
+                  fontWeight: "700",
+                  fontSize: "16px",
+                  letterSpacing: "0.3px",
+                  background: "linear-gradient(90deg, rgba(0,245,255,0.95), rgba(255,78,205,0.95))",
+                  boxShadow: "0px 12px 30px rgba(0, 245, 255, 0.18), 0px 10px 24px rgba(255, 78, 205, 0.12)",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  transition: "all 0.3s ease",
+                  color: "#050816"
+                }}
+              >
+                Get Started
+              </button>
+            </SignUpButton>
+          </SignedOut>
+          <SignedIn>
             <button
+              onClick={() => navigate('/home')}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -96,9 +123,9 @@ export default function LandingPage() {
                 color: "#050816"
               }}
             >
-              Get Started
+              Go to Dashboard
             </button>
-          </SignUpButton>
+          </SignedIn>
         </div>
         <img src="/landing.jpg" alt="Landing Illustration" style={{ maxWidth: "80vh ", width: "100%" }} />
       </div>

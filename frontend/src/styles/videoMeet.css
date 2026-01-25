@@ -73,7 +73,6 @@
     display: block;
     min-height: 280px;
     object-fit: cover;
-    transform: scaleX(-1);
 }
 
 /* Meeting Room Styles */
@@ -157,10 +156,6 @@
 
 .video-container.local:hover {
     border-color: rgba(0, 255, 100, 0.5);
-}
-
-.video-container.local video {
-    transform: scaleX(-1);
 }
 
 .video-container video {

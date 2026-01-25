@@ -3,6 +3,8 @@ import { Server } from "socket.io";
 let connections = {};
 let messages = {};
 let timeOnline = {};
+let usernames = {}; // Store usernames mapped to socket IDs
+
 const connectToSocket = (server) => {
     const io = new Server(server, {
         cors: {
@@ -18,16 +20,38 @@ const connectToSocket = (server) => {
     io.on("connection", (socket) => {
         console.log("✅ Something connected:", socket.id);
 
-        socket.on("join-call", (path) => {
+        socket.on("join-call", (path, username) => {
             if (connections[path] === undefined) {
                 connections[path] = [];
             }
+
+            // Store the username for this socket ID
+            if (username) {
+                usernames[socket.id] = username;
+            }
+
+            // Store existing users before adding new user
+            const existingUsers = [...connections[path]];
+
             connections[path].push(socket.id);
             timeOnline[socket.id] = new Date();
 
-            for (let a = 0; a < connections[path].length; a++) {
-                io.to(connections[path][a]).emit("user-joined", socket.id, connections[path]);
+            // Create usernames object for this room
+            const roomUsernames = {};
+            connections[path].forEach(sid => {
+                roomUsernames[sid] = usernames[sid] || 'Unknown';
+            });
+
+            // Notify existing users about the new user
+            existingUsers.forEach(existingUserId => {
+                io.to(existingUserId).emit("user-joined", socket.id, connections[path], roomUsernames);
+            });
+
+            // Notify the new user about all existing users
+            if (existingUsers.length > 0) {
+                io.to(socket.id).emit("user-joined", socket.id, connections[path], roomUsernames);
             }
+
             if (messages[path] !== undefined) {
                 for (let b = 0; b < messages[path].length; b++) {
                     io.to(socket.id).emit("chat-message", messages[path][b]['data'], messages[path][b]['sender'], messages[path][b]['socket-id-sender ']);
@@ -76,6 +100,8 @@ const connectToSocket = (server) => {
                     }
                 }
             }
+            // Clean up username
+            delete usernames[socket.id];
         });
     });
 
