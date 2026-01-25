@@ -1,0 +1,15 @@
+.form-section {
+    margin-bottom: 20px;
+}
+
+.form-section h4 {
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.MuiFormControlLabel-root {
+    color: white !important;
+    margin-bottom: 8px;
+}

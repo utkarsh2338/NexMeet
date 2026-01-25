@@ -1,13 +1,20 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useUser, UserButton } from '@clerk/clerk-react'
-import { MdHistory, MdVideoCall, MdArrowForward } from 'react-icons/md'
+import { MdHistory, MdVideoCall, MdArrowForward, MdAdd } from 'react-icons/md'
 import { BsClockHistory } from 'react-icons/bs'
+import { LoadingOverlay } from '../components/LoadingStates'
+import { useApp } from '../context/AppContext'
+import CreateMeetingModal from '../components/CreateMeetingModal'
+
+const server = import.meta.env.VITE_BACKEND_SERVER_URL || "http://localhost:4000";
 
 export default function HomeComponent() {
     const { isSignedIn, isLoaded, user } = useUser();
     const navigate = useNavigate();
     const [meetingCode, setMeetingCode] = useState("");
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const { startLoading, stopLoading } = useApp();
 
     useEffect(() => {
         if (isLoaded && !isSignedIn) {
@@ -20,6 +27,8 @@ export default function HomeComponent() {
             alert('Please enter a meeting code');
             return;
         }
+
+        startLoading('Joining meeting...');
 
         // Save to history
         const history = JSON.parse(localStorage.getItem('meetingHistory') || '[]');
@@ -34,7 +43,38 @@ export default function HomeComponent() {
         localStorage.setItem('meetingHistory', JSON.stringify(updatedHistory));
 
         // Navigate to meeting
-        navigate(`/${meetingCode}`);
+        setTimeout(() => {
+            stopLoading();
+            navigate(`/${meetingCode}`);
+        }, 500);
+    };
+
+    const handleCreateMeeting = async (meetingData) => {
+        try {
+            startLoading('Creating meeting...');
+
+            const response = await fetch(`${server}/api/v1/security/create`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(meetingData)
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                setShowCreateModal(false);
+                stopLoading();
+                // Navigate to the created meeting
+                navigate(`/${meetingData.meetingCode}`);
+            } else {
+                stopLoading();
+                alert(result.message || 'Failed to create meeting');
+            }
+        } catch (error) {
+            stopLoading();
+            console.error('Error creating meeting:', error);
+            alert('Failed to create meeting. Please try again.');
+        }
     };
 
     const handleKeyPress = (e) => {
@@ -128,7 +168,7 @@ export default function HomeComponent() {
                 </div>
             </nav>
 
-{/* History Implementation
+            {/* History Implementation
 What is localStorage?
 localStorage is a built-in browser API that allows you to store key-value pairs persistently in the user's browser. Key characteristics:
 (basically browser me hi store ho jata hai ye data
@@ -272,6 +312,38 @@ How It Works in our App
                             Join Meeting
                             <MdArrowForward size={20} />
                         </button>
+
+                        <button
+                            onClick={() => setShowCreateModal(true)}
+                            style={{
+                                marginTop: '12px',
+                                width: '100%',
+                                padding: '16px',
+                                borderRadius: '12px',
+                                border: '2px solid #00ffff',
+                                background: 'transparent',
+                                color: '#00ffff',
+                                fontSize: '16px',
+                                fontWeight: '700',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '10px',
+                                transition: 'all 0.3s ease'
+                            }}
+                            onMouseOver={(e) => {
+                                e.currentTarget.style.background = 'rgba(0,255,255,0.1)';
+                                e.currentTarget.style.transform = 'translateY(-2px)';
+                            }}
+                            onMouseOut={(e) => {
+                                e.currentTarget.style.background = 'transparent';
+                                e.currentTarget.style.transform = 'translateY(0)';
+                            }}
+                        >
+                            <MdAdd size={20} />
+                            Create New Meeting
+                        </button>
                     </div>
 
                     <div style={{
@@ -311,6 +383,14 @@ How It Works in our App
                     />
                 </div>
             </div>
+
+            {/* Create Meeting Modal */}
+            <CreateMeetingModal
+                open={showCreateModal}
+                onClose={() => setShowCreateModal(false)}
+                onCreateMeeting={handleCreateMeeting}
+                user={user}
+            />
         </div>
     );
 }

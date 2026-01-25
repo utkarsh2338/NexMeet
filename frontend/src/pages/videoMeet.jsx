@@ -3,11 +3,13 @@ import "../styles/videoMeet.css"
 import { TextField, Button } from '@mui/material'
 import { io } from 'socket.io-client'
 import { useParams } from 'react-router-dom'
+import { useUser } from '@clerk/clerk-react'
 import { BsMicFill, BsMicMuteFill, BsCameraVideoFill, BsCameraVideoOffFill, BsStopCircleFill, BsChatDotsFill } from 'react-icons/bs'
 import { MdScreenShare, MdCallEnd, MdSend } from 'react-icons/md'
+import { ConnectionStatus, LoadingOverlay } from '../components/LoadingStates'
+import { useApp } from '../context/AppContext'
 
 const server = import.meta.env.VITE_BACKEND_SERVER_URL || "http://localhost:4000";
-const connections = {};
 const peerConnectionConfig = {
   'iceServers': [
     { 'urls': 'stun:stun.services.mozilla.com' },
@@ -51,10 +53,17 @@ const RemoteVideo = React.memo(({ video, index }) => {
 
 export default function VideoMeet() {
   const { url } = useParams();
+  const { user } = useUser();
+  const { isLoading, startLoading, stopLoading } = useApp();
 
+  // Refs - Move connections inside component to prevent global state issues
   const socketRef = useRef();
   const socketIdRef = useRef();
   const localVideoRef = useRef();
+  const connectionsRef = useRef({}); // ✅ Fixed: Moved from global scope
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimeoutRef = useRef(null);
+  const MAX_RECONNECT_ATTEMPTS = 5;
   const [videoAvailable, setVideoAvailable] = useState(true);
   const [audioAvailable, setAudioAvailable] = useState(true);
   const [video, setVideo] = useState();
@@ -73,6 +82,7 @@ export default function VideoMeet() {
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState('disconnected');
   const screenStreamRef = useRef(null);
   const chatMessagesRef = useRef(null);
 
@@ -136,21 +146,21 @@ export default function VideoMeet() {
       connectToSocketServer();
     }
 
-    for (let id in connections) {
+    for (let id in connectionsRef.current) {
       if (id === socketIdRef.current) continue;
       // Replace existing tracks
-      const senders = connections[id].getSenders();
+      const senders = connectionsRef.current[id].getSenders();
       stream.getTracks().forEach(track => {
         const sender = senders.find(s => s.track && s.track.kind === track.kind);
         if (sender) {
           sender.replaceTrack(track);
         } else {
-          connections[id].addTrack(track, stream);
+          connectionsRef.current[id].addTrack(track, stream);
         }
       });
-      connections[id].createOffer().then((description) => {
-        connections[id].setLocalDescription(description).then(() => {
-          socketRef.current.emit("signal", id, JSON.stringify({ "sdp": connections[id].localDescription }));
+      connectionsRef.current[id].createOffer().then((description) => {
+        connectionsRef.current[id].setLocalDescription(description).then(() => {
+          socketRef.current.emit("signal", id, JSON.stringify({ "sdp": connectionsRef.current[id].localDescription }));
         }).catch((e) => {
           console.error("Error setting local description:", e);
         });
@@ -174,19 +184,19 @@ export default function VideoMeet() {
       let blackSilence = (...args) => new MediaStream([black(...args), silence()]);
       window.localStream = blackSilence();
       localVideoRef.current.srcObject = window.localStream;
-      for (let id in connections) {
-        const senders = connections[id].getSenders();
+      for (let id in connectionsRef.current) {
+        const senders = connectionsRef.current[id].getSenders();
         window.localStream.getTracks().forEach(track => {
           const sender = senders.find(s => s.track && s.track.kind === track.kind);
           if (sender) {
             sender.replaceTrack(track);
           } else {
-            connections[id].addTrack(track, window.localStream);
+            connectionsRef.current[id].addTrack(track, window.localStream);
           }
         });
-        connections[id].createOffer().then((description) => {
-          connections[id].setLocalDescription(description).then(() => {
-            socketRef.current.emit("signal", id, JSON.stringify({ "sdp": connections[id].localDescription }));
+        connectionsRef.current[id].createOffer().then((description) => {
+          connectionsRef.current[id].setLocalDescription(description).then(() => {
+            socketRef.current.emit("signal", id, JSON.stringify({ "sdp": connectionsRef.current[id].localDescription }));
           }).catch((e) => {
             console.error("Error setting local description:", e);
           });
@@ -250,11 +260,11 @@ export default function VideoMeet() {
     const signal = JSON.parse(message);
     if (fromId !== socketIdRef.current) {
       if (signal.sdp) {
-        connections[fromId].setRemoteDescription(new RTCSessionDescription(signal.sdp)).then(() => {
+        connectionsRef.current[fromId].setRemoteDescription(new RTCSessionDescription(signal.sdp)).then(() => {
           if (signal.sdp.type === 'offer') {
-            connections[fromId].createAnswer().then((description) => {
-              connections[fromId].setLocalDescription(description).then(() => {
-                socketRef.current.emit("signal", fromId, JSON.stringify({ "sdp": connections[fromId].localDescription }));
+            connectionsRef.current[fromId].createAnswer().then((description) => {
+              connectionsRef.current[fromId].setLocalDescription(description).then(() => {
+                socketRef.current.emit("signal", fromId, JSON.stringify({ "sdp": connectionsRef.current[fromId].localDescription }));
               }).catch(e => console.error("Error setting local description:", e));
             }).catch(e => console.error("Error creating answer:", e));
           }
@@ -262,7 +272,7 @@ export default function VideoMeet() {
       }
     }
     if (signal.ice) {
-      connections[fromId].addIceCandidate(new RTCIceCandidate(signal.ice)).catch(e => console.error("Error adding ice candidate:", e));
+      connectionsRef.current[fromId].addIceCandidate(new RTCIceCandidate(signal.ice)).catch(e => console.error("Error adding ice candidate:", e));
     }
   };
 
@@ -272,14 +282,58 @@ export default function VideoMeet() {
   }
 
   const connectToSocketServer = () => {
-    socketRef.current = io(server, { secure: false });
+    setConnectionStatus('connecting');
+    startLoading('Connecting to meeting...');
+
+    socketRef.current = io(server, {
+      secure: false,
+      reconnection: true,
+      reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000
+    });
 
     socketRef.current.on('connect_error', (error) => {
       console.error('Socket connection error:', error);
+      setConnectionStatus('disconnected');
+      stopLoading();
+
+      // Attempt manual reconnection
+      if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+        reconnectAttemptsRef.current++;
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
+        console.log(`Reconnecting in ${delay}ms... (Attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`);
+
+        reconnectTimeoutRef.current = setTimeout(() => {
+          setConnectionStatus('reconnecting');
+          socketRef.current.connect();
+        }, delay);
+      }
     });
 
     socketRef.current.on('disconnect', (reason) => {
       console.log('Disconnected from socket server:', reason);
+      setConnectionStatus('disconnected');
+
+      // Auto-reconnect for unexpected disconnects
+      if (reason === 'io server disconnect') {
+        // Server disconnected - try to reconnect
+        socketRef.current.connect();
+      }
+    });
+
+    socketRef.current.on('reconnect', (attemptNumber) => {
+      console.log(`Reconnected after ${attemptNumber} attempts`);
+      setConnectionStatus('connected');
+      reconnectAttemptsRef.current = 0;
+    });
+
+    socketRef.current.on('reconnect_failed', () => {
+      console.error('Failed to reconnect after maximum attempts');
+      setConnectionStatus('disconnected');
+      stopLoading();
+      alert('Failed to connect to meeting. Please refresh the page.');
     });
 
     socketRef.current.on('signal', gotMessageFromServer);
@@ -288,16 +342,27 @@ export default function VideoMeet() {
     socketRef.current.on('connect', () => {
       console.log('Connected to socket server with ID:', socketRef.current.id);
       socketIdRef.current = socketRef.current.id;
+      setConnectionStatus('connected');
+      stopLoading();
+      reconnectAttemptsRef.current = 0;
 
-      // Emit join-call event to join the room with username
-      socketRef.current.emit('join-call', url || 'default-room', username);
+      // Emit join-call event to join the room with username and clerkUserId
+      socketRef.current.emit('join-call', url || 'default-room', username, user?.id || null);
+    });
+
+    socketRef.current.on('error', (error) => {
+      console.error('Socket error:', error);
+      if (error.code === 'ROOM_FULL') {
+        alert(error.message);
+        window.location.href = '/';
+      }
     });
 
     socketRef.current.on('user-left', (id) => {
       setVideos((videos) => videos.filter(video => video.socketId !== id));
-      if (connections[id]) {
-        connections[id].close();
-        delete connections[id];
+      if (connectionsRef.current[id]) {
+        connectionsRef.current[id].close();
+        delete connectionsRef.current[id];
       }
     });
 
@@ -309,16 +374,16 @@ export default function VideoMeet() {
         }
 
         // Only create a new connection if one doesn't already exist
-        if (!connections[socketListId]) {
-          connections[socketListId] = new RTCPeerConnection(peerConnectionConfig);
+        if (!connectionsRef.current[socketListId]) {
+          connectionsRef.current[socketListId] = new RTCPeerConnection(peerConnectionConfig);
 
-          connections[socketListId].onicecandidate = (event) => {
+          connectionsRef.current[socketListId].onicecandidate = (event) => {
             if (event.candidate != null) {
               socketRef.current.emit("signal", socketListId, JSON.stringify({ "ice": event.candidate }));
             }
           };
 
-          connections[socketListId].ontrack = (event) => {
+          connectionsRef.current[socketListId].ontrack = (event) => {
             console.log("Received track from:", socketListId, event.streams[0]);
 
             // Additional check: don't add your own stream
@@ -360,14 +425,14 @@ export default function VideoMeet() {
 
           if (window.localStream !== undefined && window.localStream !== null) {
             window.localStream.getTracks().forEach(track => {
-              connections[socketListId].addTrack(track, window.localStream);
+              connectionsRef.current[socketListId].addTrack(track, window.localStream);
             });
           }
           else {
             let blackSilence = (...args) => new MediaStream([black(...args), silence()]);
             window.localStream = blackSilence();
             window.localStream.getTracks().forEach(track => {
-              connections[socketListId].addTrack(track, window.localStream);
+              connectionsRef.current[socketListId].addTrack(track, window.localStream);
             });
           }
         }
@@ -375,12 +440,12 @@ export default function VideoMeet() {
 
       // If this is the newly joined user, create offers to all existing users
       if (id === socketIdRef.current) {
-        for (let id2 in connections) {
+        for (let id2 in connectionsRef.current) {
           if (id2 === socketIdRef.current) continue;
 
-          connections[id2].createOffer().then((description) => {
-            connections[id2].setLocalDescription(description).then(() => {
-              socketRef.current.emit("signal", id2, JSON.stringify({ "sdp": connections[id2].localDescription }));
+          connectionsRef.current[id2].createOffer().then((description) => {
+            connectionsRef.current[id2].setLocalDescription(description).then(() => {
+              socketRef.current.emit("signal", id2, JSON.stringify({ "sdp": connectionsRef.current[id2].localDescription }));
             }).catch((e) => {
               console.error("Error setting local description:", e);
             });
@@ -394,9 +459,9 @@ export default function VideoMeet() {
     socketRef.current.on('user-disconnected', (socketId, timeConnected) => {
       console.log('User disconnected:', socketId, 'Time connected:', timeConnected);
       setVideos((videos) => videos.filter(video => video.socketId !== socketId));
-      if (connections[socketId]) {
-        connections[socketId].close();
-        delete connections[socketId];
+      if (connectionsRef.current[socketId]) {
+        connectionsRef.current[socketId].close();
+        delete connectionsRef.current[socketId];
       }
     });
   };
@@ -489,8 +554,8 @@ export default function VideoMeet() {
         }
 
         // Update peer connections with camera video stream only
-        for (let id in connections) {
-          const sender = connections[id].getSenders().find(s => s.track && s.track.kind === 'video');
+        for (let id in connectionsRef.current) {
+          const sender = connectionsRef.current[id].getSenders().find(s => s.track && s.track.kind === 'video');
           if (sender) {
             sender.replaceTrack(videoTrack);
           }
@@ -531,8 +596,8 @@ export default function VideoMeet() {
         }
 
         // Update peer connections with screen stream
-        for (let id in connections) {
-          const sender = connections[id].getSenders().find(s => s.track && s.track.kind === 'video');
+        for (let id in connectionsRef.current) {
+          const sender = connectionsRef.current[id].getSenders().find(s => s.track && s.track.kind === 'video');
           if (sender) {
             sender.replaceTrack(screenTrack);
           }
@@ -568,12 +633,17 @@ export default function VideoMeet() {
       }
 
       // Close all peer connections
-      Object.keys(connections).forEach(id => {
-        if (connections[id]) {
-          connections[id].close();
-          delete connections[id];
+      Object.keys(connectionsRef.current).forEach(id => {
+        if (connectionsRef.current[id]) {
+          connectionsRef.current[id].close();
+          delete connectionsRef.current[id];
         }
       });
+
+      // Clear reconnect timeout
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
 
       // Disconnect socket
       if (socketRef.current) {
@@ -584,6 +654,12 @@ export default function VideoMeet() {
 
   return (
     <div className="video-meet-container">
+      {/* Connection Status Indicator */}
+      {!askForUsername && <ConnectionStatus status={connectionStatus} />}
+
+      {/* Loading Overlay */}
+      {isLoading && <LoadingOverlay message={isLoading ? 'Connecting to meeting...' : ''} />}
+
       {
         askForUsername === true ?
           <div className="lobby-container">
@@ -717,10 +793,10 @@ export default function VideoMeet() {
                     }
 
                     // Close all peer connections
-                    Object.keys(connections).forEach(id => {
-                      if (connections[id]) {
-                        connections[id].close();
-                        delete connections[id];
+                    Object.keys(connectionsRef.current).forEach(id => {
+                      if (connectionsRef.current[id]) {
+                        connectionsRef.current[id].close();
+                        delete connectionsRef.current[id];
                       }
                     });
 
