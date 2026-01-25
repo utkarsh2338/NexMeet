@@ -13,6 +13,12 @@ body {
   background-size: 60px 60px, 60px 60px, auto, auto, auto;
 }
 
+.landingPageContainer {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
 .page {
   min-height: 100vh;
   padding: 40px;

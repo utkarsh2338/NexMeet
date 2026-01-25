@@ -10,7 +10,7 @@
     "start": "node app.js",
     "prod": "pm2 app.js"
   },
-  "author": "",
+  "author": "Utkarsh Shukla <utkarshshukla102005@gmail.com>",
   "license": "ISC",
   "dependencies": {
     "cors": "^2.8.5",

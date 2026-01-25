@@ -3,6 +3,8 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "author": "Utkarsh Shukla <utkarshshukla@nexmeet.com>",
+  "license": "ISC",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

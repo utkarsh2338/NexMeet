@@ -2,6 +2,7 @@ import React from 'react'
 import '../App.css'
 import { Link, useNavigate } from 'react-router-dom'
 import { SignedIn, SignedOut, SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
+import Footer from '../components/Footer'
 
 export default function LandingPage() {
   const navigate = useNavigate();
@@ -129,6 +130,8 @@ export default function LandingPage() {
         </div>
         <img src="/landing.jpg" alt="Landing Illustration" style={{ maxWidth: "80vh ", width: "100%" }} />
       </div>
+
+      <Footer />
     </div>
   )
 }

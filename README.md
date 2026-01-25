@@ -1161,7 +1161,7 @@ This project is licensed under the ISC License.
 ```
 ISC License
 
-Copyright (c) 2026 NexMeet
+Copyright (c) 2026 Utkarsh Shukla
 
 Permission to use, copy, modify, and/or distribute this software for any
 purpose with or without fee is hereby granted, provided that the above
@@ -1228,8 +1228,17 @@ For support, please:
 
 <div align="center">
 
-**Built with ❤️ by the NexMeet Team**
+**Made with ❤️ by Utkarsh Shukla**
 
-[Website](#) • [Documentation](#) • [Report Bug](https://github.com/yourusername/NexMeet/issues) • [Request Feature](https://github.com/yourusername/NexMeet/issues)
+[Website](https://nexmeet.com) • [Documentation](#) • [Report Bug](https://github.com/utkarshshukla/NexMeet/issues) • [Request Feature](https://github.com/utkarshshukla/NexMeet/issues)
+
+---
+
+### Creator
+
+**Utkarsh Shukla**  
+🚀 Full Stack Developer | Video Conferencing Enthusiast  
+📧 utkarshshukla@nexmeet.com  
+🔗 [GitHub](https://github.com/utkarshshukla) • [LinkedIn](https://linkedin.com/in/utkarshshukla) • [Twitter](https://twitter.com/utkarshshukla)
 
 </div>
