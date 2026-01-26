@@ -256,10 +256,15 @@ const connectToSocket = (server) => {
                     }
                 }
 
-                // Create usernames object for this room
+                // Create usernames object for this room (IMPORTANT: Include the newly joined user)
                 const roomUsernames = {};
                 connections[path].forEach(sid => {
-                    roomUsernames[sid] = usernames[sid] || 'Unknown';
+                    if (sid === socket.id) {
+                        // Newly joined user
+                        roomUsernames[sid] = username || 'Anonymous';
+                    } else {
+                        roomUsernames[sid] = usernames[sid] || 'Unknown';
+                    }
                 });
 
                 // Notify existing users about the new user
@@ -269,6 +274,9 @@ const connectToSocket = (server) => {
 
                 // Notify the new user about all existing users
                 if (existingUsers.length > 0) {
+                    io.to(socket.id).emit("user-joined", socket.id, connections[path], roomUsernames);
+                } else {
+                    // If first user, still emit to notify them they're connected
                     io.to(socket.id).emit("user-joined", socket.id, connections[path], roomUsernames);
                 }
 

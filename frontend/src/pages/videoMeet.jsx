@@ -260,19 +260,33 @@ export default function VideoMeet() {
     const signal = JSON.parse(message);
     if (fromId !== socketIdRef.current) {
       if (signal.sdp) {
-        connectionsRef.current[fromId].setRemoteDescription(new RTCSessionDescription(signal.sdp)).then(() => {
-          if (signal.sdp.type === 'offer') {
-            connectionsRef.current[fromId].createAnswer().then((description) => {
-              connectionsRef.current[fromId].setLocalDescription(description).then(() => {
-                socketRef.current.emit("signal", fromId, JSON.stringify({ "sdp": connectionsRef.current[fromId].localDescription }));
-              }).catch(e => console.error("Error setting local description:", e));
-            }).catch(e => console.error("Error creating answer:", e));
-          }
-        }).catch(e => console.error("Error setting remote description:", e));
+        connectionsRef.current[fromId].setRemoteDescription(new RTCSessionDescription(signal.sdp))
+          .then(() => {
+            console.log("Remote description set for:", fromId);
+            if (signal.sdp.type === 'offer') {
+              connectionsRef.current[fromId].createAnswer()
+                .then((description) => {
+                  connectionsRef.current[fromId].setLocalDescription(description)
+                    .then(() => {
+                      console.log("Local answer set for:", fromId);
+                      socketRef.current.emit("signal", fromId, JSON.stringify({ "sdp": connectionsRef.current[fromId].localDescription }));
+                    })
+                    .catch(e => console.error("Error setting local description:", e));
+                })
+                .catch(e => console.error("Error creating answer:", e));
+            }
+          })
+          .catch(e => console.error("Error setting remote description:", e));
+      } else if (signal.ice) {
+        // Add ICE candidate only if connection exists and remote description is set
+        if (connectionsRef.current[fromId] && connectionsRef.current[fromId].remoteDescription) {
+          connectionsRef.current[fromId].addIceCandidate(new RTCIceCandidate(signal.ice))
+            .catch(e => console.error("Error adding ice candidate:", e));
+        } else {
+          // Queue ICE candidates if remote description not yet set
+          console.log("Remote description not yet set for", fromId, "- candidate may be processed after SDP");
+        }
       }
-    }
-    if (signal.ice) {
-      connectionsRef.current[fromId].addIceCandidate(new RTCIceCandidate(signal.ice)).catch(e => console.error("Error adding ice candidate:", e));
     }
   };
 
@@ -367,24 +381,30 @@ export default function VideoMeet() {
     });
 
     socketRef.current.on('user-joined', (id, clients, usernames) => {
+      console.log("User joined event received:", id, clients, usernames);
+
       clients.forEach((socketListId) => {
         // Skip creating connection to yourself
         if (socketListId === socketIdRef.current) {
+          console.log("Skipping self:", socketListId);
           return;
         }
 
         // Only create a new connection if one doesn't already exist
         if (!connectionsRef.current[socketListId]) {
+          console.log("Creating new peer connection for:", socketListId);
+
           connectionsRef.current[socketListId] = new RTCPeerConnection(peerConnectionConfig);
 
           connectionsRef.current[socketListId].onicecandidate = (event) => {
             if (event.candidate != null) {
+              console.log("ICE candidate generated for:", socketListId);
               socketRef.current.emit("signal", socketListId, JSON.stringify({ "ice": event.candidate }));
             }
           };
 
           connectionsRef.current[socketListId].ontrack = (event) => {
-            console.log("Received track from:", socketListId, event.streams[0]);
+            console.log("Received track from:", socketListId, event.track.kind);
 
             // Additional check: don't add your own stream
             if (socketListId === socketIdRef.current) {
@@ -394,6 +414,7 @@ export default function VideoMeet() {
 
             let videoExist = videoRef.current.find(video => video.socketId === socketListId);
             if (videoExist) {
+              console.log("Updating existing video for:", socketListId);
               setVideos((videos) => {
                 const updatedVideos = videos.map(video => {
                   if (video.socketId === socketListId) {
@@ -408,6 +429,7 @@ export default function VideoMeet() {
             else {
               // Get username for this socket ID
               const participantUsername = usernames?.[socketListId] || 'Unknown';
+              console.log("Adding new video for:", socketListId, "with username:", participantUsername);
               let newVideo = {
                 socketId: socketListId,
                 stream: event.streams[0],
@@ -423,12 +445,24 @@ export default function VideoMeet() {
             }
           };
 
+          // Handle connection state changes
+          connectionsRef.current[socketListId].onconnectionstatechange = () => {
+            console.log("Connection state for", socketListId, ":", connectionsRef.current[socketListId].connectionState);
+          };
+
+          connectionsRef.current[socketListId].oniceconnectionstatechange = () => {
+            console.log("ICE connection state for", socketListId, ":", connectionsRef.current[socketListId].iceConnectionState);
+          };
+
+          // Add local tracks to the peer connection
           if (window.localStream !== undefined && window.localStream !== null) {
+            console.log("Adding tracks to peer connection for:", socketListId);
             window.localStream.getTracks().forEach(track => {
               connectionsRef.current[socketListId].addTrack(track, window.localStream);
             });
           }
           else {
+            console.log("No local stream yet, creating black silence for:", socketListId);
             let blackSilence = (...args) => new MediaStream([black(...args), silence()]);
             window.localStream = blackSilence();
             window.localStream.getTracks().forEach(track => {
@@ -440,11 +474,13 @@ export default function VideoMeet() {
 
       // If this is the newly joined user, create offers to all existing users
       if (id === socketIdRef.current) {
+        console.log("This user just joined. Creating offers for existing users...");
         for (let id2 in connectionsRef.current) {
           if (id2 === socketIdRef.current) continue;
 
           connectionsRef.current[id2].createOffer().then((description) => {
             connectionsRef.current[id2].setLocalDescription(description).then(() => {
+              console.log("Offer created and set for:", id2);
               socketRef.current.emit("signal", id2, JSON.stringify({ "sdp": connectionsRef.current[id2].localDescription }));
             }).catch((e) => {
               console.error("Error setting local description:", e);
