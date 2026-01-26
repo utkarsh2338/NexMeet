@@ -166,11 +166,20 @@ export default function VideoMeet() {
         setScreenAvailable(false);
       }
 
-      // Get initial media stream for preview
+      // Get initial media stream for preview with optimized constraints
       try {
         const userMediaStream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: true
+          video: {
+            width: { ideal: 640, max: 1280 },
+            height: { ideal: 480, max: 720 },
+            frameRate: { ideal: 24, max: 30 }
+          },
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            sampleRate: 48000
+          }
         });
 
         if (userMediaStream) {
@@ -284,8 +293,17 @@ export default function VideoMeet() {
   const getUserMedia = () => {
     if ((video !== undefined && videoAvailable) || (audio !== undefined && audioAvailable)) {
       navigator.mediaDevices.getUserMedia({
-        video: video !== undefined ? video : false,
-        audio: audio !== undefined ? audio : false
+        video: video !== undefined ? {
+          width: { ideal: 640, max: 1280 },
+          height: { ideal: 480, max: 720 },
+          frameRate: { ideal: 24, max: 30 }
+        } : false,
+        audio: audio !== undefined ? {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 48000
+        } : false
       })
         .then(getUserMediaSuccess)
         .catch(err => {
@@ -517,6 +535,30 @@ export default function VideoMeet() {
 
           connectionsRef.current[socketListId] = new RTCPeerConnection(peerConnectionConfig);
 
+          // Apply bandwidth constraints for lower latency
+          const applyBandwidthConstraints = async (pc) => {
+            const senders = pc.getSenders();
+            for (const sender of senders) {
+              if (sender.track && sender.track.kind === 'video') {
+                const params = sender.getParameters();
+                if (!params.encodings) {
+                  params.encodings = [{}];
+                }
+                // Limit max bitrate for lower latency (adjust based on your needs)
+                params.encodings[0].maxBitrate = 1000000; // 1 Mbps for video
+                params.encodings[0].maxFramerate = 30;
+                await sender.setParameters(params);
+              } else if (sender.track && sender.track.kind === 'audio') {
+                const params = sender.getParameters();
+                if (!params.encodings) {
+                  params.encodings = [{}];
+                }
+                params.encodings[0].maxBitrate = 64000; // 64 kbps for audio
+                await sender.setParameters(params);
+              }
+            }
+          };
+
           connectionsRef.current[socketListId].onicecandidate = (event) => {
             if (event.candidate != null) {
               const candidateType = event.candidate.type; // host, srflx (STUN), or relay (TURN)
@@ -638,6 +680,9 @@ export default function VideoMeet() {
             window.localStream.getTracks().forEach(track => {
               connectionsRef.current[socketListId].addTrack(track, window.localStream);
             });
+
+            // Apply bandwidth constraints after adding tracks
+            setTimeout(() => applyBandwidthConstraints(connectionsRef.current[socketListId]), 100);
           }
           else {
             console.warn("No local stream available for:", socketListId, "- this should not happen!");
