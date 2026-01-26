@@ -123,7 +123,9 @@ const getTurnCredentials = async (req, res) => {
         ];
 
         // Add free public TURN servers as fallback
+        // Using multiple providers for redundancy
         iceServers.push(
+            // OpenRelay (Metered.ca public relay)
             {
                 urls: 'turn:openrelay.metered.ca:80',
                 username: 'openrelayproject',
@@ -138,8 +140,15 @@ const getTurnCredentials = async (req, res) => {
                 urls: 'turn:openrelay.metered.ca:443?transport=tcp',
                 username: 'openrelayproject',
                 credential: 'openrelayproject'
+            },
+            // Twilio STUN (alternative)
+            {
+                urls: 'stun:global.stun.twilio.com:3478?transport=udp'
             }
         );
+
+        // Note: For production, you should use paid TURN servers or set up your own
+        console.log(`📡 Configured ${iceServers.length} ICE servers (STUN + public TURN relays)`);
 
         // Try to fetch TURN credentials from Metered.ca if configured
         const meteredApiKey = process.env.METERED_API_KEY;
