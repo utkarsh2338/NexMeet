@@ -359,7 +359,8 @@ export default function VideoMeet() {
       } else if (signal.ice) {
         // Add ICE candidate only if remote description is already set
         if (pc.remoteDescription && pc.remoteDescription.type) {
-          console.log("Adding ICE candidate for:", fromId);
+          const candidateType = signal.ice.candidate?.split(' ')[7] || 'unknown';
+          console.log(`📥 Adding ICE candidate [${candidateType}] for:`, fromId);
           pc.addIceCandidate(new RTCIceCandidate(signal.ice))
             .catch(e => console.error("Error adding ice candidate:", e));
         } else {
@@ -518,9 +519,17 @@ export default function VideoMeet() {
 
           connectionsRef.current[socketListId].onicecandidate = (event) => {
             if (event.candidate != null) {
-              console.log("ICE candidate generated for:", socketListId);
+              const candidateType = event.candidate.type; // host, srflx (STUN), or relay (TURN)
+              const protocol = event.candidate.protocol; // udp or tcp
+              console.log(`🧊 ICE candidate [${candidateType}/${protocol}] for:`, socketListId, event.candidate.candidate);
               socketRef.current.emit("signal", socketListId, JSON.stringify({ "ice": event.candidate }));
+            } else {
+              console.log("✅ ICE gathering complete for:", socketListId);
             }
+          };
+
+          connectionsRef.current[socketListId].onicecandidateerror = (event) => {
+            console.error(`❌ ICE candidate error for ${socketListId}:`, event.errorCode, event.errorText, event.url);
           };
 
           connectionsRef.current[socketListId].ontrack = (event) => {
@@ -605,7 +614,19 @@ export default function VideoMeet() {
             if (!pc) return;
 
             const state = pc.iceConnectionState;
-            console.log("ICE connection state for", socketListId, ":", state);
+            const emoji = state === 'connected' ? '✅' : state === 'failed' ? '❌' : state === 'checking' ? '🔍' : '⚠️';
+            console.log(`${emoji} ICE connection state for ${socketListId}:`, state);
+
+            // Log the selected candidate pair when connected
+            if (state === 'connected' || state === 'completed') {
+              pc.getStats().then(stats => {
+                stats.forEach(report => {
+                  if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+                    console.log('🎯 Selected candidate pair:', report);
+                  }
+                });
+              });
+            }
 
             // Don't attempt restart from here - let onconnectionstatechange handle it
             // This avoids duplicate restart attempts
