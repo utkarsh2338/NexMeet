@@ -122,6 +122,25 @@ const getTurnCredentials = async (req, res) => {
             { urls: 'stun:global.stun.twilio.com:3478' },
         ];
 
+        // Add free public TURN servers as fallback
+        iceServers.push(
+            {
+                urls: 'turn:openrelay.metered.ca:80',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            },
+            {
+                urls: 'turn:openrelay.metered.ca:443',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            },
+            {
+                urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            }
+        );
+
         // Try to fetch TURN credentials from Metered.ca if configured
         const meteredApiKey = process.env.METERED_API_KEY;
         const meteredAppName = process.env.METERED_APP_NAME;
@@ -135,16 +154,15 @@ const getTurnCredentials = async (req, res) => {
                 if (response.ok) {
                     const turnServers = await response.json();
                     iceServers.push(...turnServers);
-                    console.log("Fetched TURN credentials from Metered.ca:", turnServers.length, "servers");
+                    console.log("✅ Fetched TURN credentials from Metered.ca:", turnServers.length, "servers");
                 } else {
-                    console.warn("Metered API returned status:", response.status);
+                    console.warn("⚠️ Metered API returned status:", response.status, "- using public TURN servers");
                 }
             } catch (error) {
-                console.warn("Failed to fetch Metered TURN credentials:", error.message);
+                console.warn("⚠️ Failed to fetch Metered TURN credentials:", error.message, "- using public TURN servers");
             }
         } else {
-            console.log("No METERED_API_KEY configured - using STUN only");
-            console.log("For NAT traversal, sign up at https://www.metered.ca/ for free TURN servers");
+            console.log("ℹ️ No METERED_API_KEY configured - using public TURN servers");
         }
 
         res.status(httpStatus.OK).json({
