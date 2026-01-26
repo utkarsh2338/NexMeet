@@ -27,7 +27,7 @@ const getDefaultIceConfig = () => ({
 // Fetch ICE server configuration from backend (includes TURN servers if configured)
 const fetchIceServers = async () => {
   try {
-    const response = await fetch(`${server}/api/v1/meeting/turn-credentials`);
+    const response = await fetch(`${server}/api/v1/meetings/turn-credentials`);
     if (response.ok) {
       const config = await response.json();
       const turnServers = config.iceServers?.filter(s => s.urls?.includes('turn:')) || [];
