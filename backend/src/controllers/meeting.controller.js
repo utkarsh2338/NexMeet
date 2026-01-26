@@ -152,7 +152,41 @@ const getTurnCredentials = async (req, res) => {
         // Note: For production, you should use paid TURN servers or set up your own
         console.log(`📡 Configured ${iceServers.length} ICE servers (STUN + public TURN relays)`);
 
-        // Try to fetch TURN credentials from Metered.ca if configured
+        // Priority 1: Try to fetch TURN credentials from Xirsys if configured
+        const xirsysIdent = process.env.XIRSYS_IDENT; // Format: username (from Xirsys dashboard)
+        const xirsysSecret = process.env.XIRSYS_SECRET; // Secret key from Xirsys dashboard
+        const xirsysChannel = process.env.XIRSYS_CHANNEL || 'default'; // Your channel name
+
+        if (xirsysIdent && xirsysSecret) {
+            try {
+                const auth = Buffer.from(`${xirsysIdent}:${xirsysSecret}`).toString('base64');
+                const response = await fetch(
+                    `https://global.xirsys.net/_turn/${xirsysChannel}`,
+                    {
+                        method: 'PUT',
+                        headers: {
+                            'Authorization': `Basic ${auth}`,
+                            'Content-Type': 'application/json'
+                        }
+                    }
+                );
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.v && data.v.iceServers) {
+                        // Xirsys returns in format: { v: { iceServers: [...] } }
+                        iceServers.push(...data.v.iceServers);
+                        console.log("✅ Fetched TURN credentials from Xirsys:", data.v.iceServers.length, "servers");
+                    }
+                } else {
+                    console.warn("⚠️ Xirsys API returned status:", response.status);
+                }
+            } catch (error) {
+                console.warn("⚠️ Failed to fetch Xirsys TURN credentials:", error.message);
+            }
+        }
+
+        // Priority 2: Try to fetch TURN credentials from Metered.ca if configured
         const meteredApiKey = process.env.METERED_API_KEY;
         const meteredAppName = process.env.METERED_APP_NAME;
 
@@ -167,14 +201,16 @@ const getTurnCredentials = async (req, res) => {
                     iceServers.push(...turnServers);
                     console.log("✅ Fetched TURN credentials from Metered.ca:", turnServers.length, "servers");
                 } else {
-                    console.warn("⚠️ Metered API returned status:", response.status, "- using public TURN servers");
+                    console.warn("⚠️ Metered API returned status:", response.status);
                 }
             } catch (error) {
-                console.warn("⚠️ Failed to fetch Metered TURN credentials:", error.message, "- using public TURN servers");
+                console.warn("⚠️ Failed to fetch Metered TURN credentials:", error.message);
             }
-        } else {
-            console.log("ℹ️ No METERED_API_KEY configured - using public TURN servers");
         }
+
+        // Log final count
+        const turnCount = iceServers.filter(s => s.urls?.includes('turn:')).length;
+        console.log(`🎯 Final ICE config: ${iceServers.length} total servers (${turnCount} TURN)`);
 
         res.status(httpStatus.OK).json({
             success: true,
