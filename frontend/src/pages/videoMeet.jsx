@@ -85,6 +85,7 @@ export default function VideoMeet() {
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
   const screenStreamRef = useRef(null);
   const chatMessagesRef = useRef(null);
+  const remoteStreamsRef = useRef({}); // Track which socket IDs already have video entries to prevent duplicates
 
   const getpermissions = async () => {
     try {
@@ -373,7 +374,9 @@ export default function VideoMeet() {
     });
 
     socketRef.current.on('user-left', (id) => {
+      console.log('User left:', id);
       setVideos((videos) => videos.filter(video => video.socketId !== id));
+      delete remoteStreamsRef.current[id]; // Clean up the tracking ref
       if (connectionsRef.current[id]) {
         connectionsRef.current[id].close();
         delete connectionsRef.current[id];
@@ -412,24 +415,26 @@ export default function VideoMeet() {
               return;
             }
 
-            let videoExist = videoRef.current.find(video => video.socketId === socketListId);
-            if (videoExist) {
-              console.log("Updating existing video for:", socketListId);
+            // Check if we've already created a video entry for this socketId
+            // This prevents duplicates when both audio and video tracks arrive
+            if (remoteStreamsRef.current[socketListId]) {
+              console.log("Stream already exists for:", socketListId, "- updating with new track");
+              // Stream already exists, just update it in state (both tracks are in event.streams[0])
               setVideos((videos) => {
                 const updatedVideos = videos.map(video => {
                   if (video.socketId === socketListId) {
                     return { ...video, stream: event.streams[0] };
                   }
-                  else return video;
+                  return video;
                 });
-                videoRef.current = updatedVideos;
                 return updatedVideos;
               });
-            }
-            else {
-              // Get username for this socket ID
+            } else {
+              // First track from this peer - create new video entry
+              remoteStreamsRef.current[socketListId] = true; // Mark as created
               const participantUsername = usernames?.[socketListId] || 'Unknown';
               console.log("Adding new video for:", socketListId, "with username:", participantUsername);
+
               let newVideo = {
                 socketId: socketListId,
                 stream: event.streams[0],
@@ -495,6 +500,7 @@ export default function VideoMeet() {
     socketRef.current.on('user-disconnected', (socketId, timeConnected) => {
       console.log('User disconnected:', socketId, 'Time connected:', timeConnected);
       setVideos((videos) => videos.filter(video => video.socketId !== socketId));
+      delete remoteStreamsRef.current[socketId]; // Clean up the tracking ref
       if (connectionsRef.current[socketId]) {
         connectionsRef.current[socketId].close();
         delete connectionsRef.current[socketId];
@@ -675,6 +681,9 @@ export default function VideoMeet() {
           delete connectionsRef.current[id];
         }
       });
+
+      // Clear remote streams tracking
+      remoteStreamsRef.current = {};
 
       // Clear reconnect timeout
       if (reconnectTimeoutRef.current) {
