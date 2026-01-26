@@ -122,35 +122,8 @@ const getTurnCredentials = async (req, res) => {
             { urls: 'stun:global.stun.twilio.com:3478' },
         ];
 
-        // Add free public TURN servers as fallback
-        // Using multiple providers for redundancy
-        iceServers.push(
-            // OpenRelay (Metered.ca public relay) - Note: May be unreliable
-            {
-                urls: 'turn:openrelay.metered.ca:80',
-                username: 'openrelayproject',
-                credential: 'openrelayproject'
-            },
-            {
-                urls: 'turn:openrelay.metered.ca:443',
-                username: 'openrelayproject',
-                credential: 'openrelayproject'
-            },
-            // Backup TURN servers (numb.viagenie.ca)
-            {
-                urls: 'turn:numb.viagenie.ca',
-                username: 'webrtc@live.com',
-                credential: 'muazkh'
-            },
-            {
-                urls: 'turn:numb.viagenie.ca:3478?transport=tcp',
-                username: 'webrtc@live.com',
-                credential: 'muazkh'
-            }
-        );
-
-        // Note: For production, you should use paid TURN servers or set up your own
-        console.log(`📡 Configured ${iceServers.length} ICE servers (STUN + public TURN relays)`);
+        // Note: TURN servers will be added from Xirsys or Metered if configured
+        console.log(`📡 Configured ${iceServers.length} STUN servers`);
 
         // Priority 1: Try to fetch TURN credentials from Xirsys if configured
         const xirsysIdent = process.env.XIRSYS_IDENT; // Format: username (from Xirsys dashboard)
