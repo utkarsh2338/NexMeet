@@ -125,7 +125,7 @@ const getTurnCredentials = async (req, res) => {
         // Add free public TURN servers as fallback
         // Using multiple providers for redundancy
         iceServers.push(
-            // OpenRelay (Metered.ca public relay)
+            // OpenRelay (Metered.ca public relay) - Note: May be unreliable
             {
                 urls: 'turn:openrelay.metered.ca:80',
                 username: 'openrelayproject',
@@ -136,10 +136,16 @@ const getTurnCredentials = async (req, res) => {
                 username: 'openrelayproject',
                 credential: 'openrelayproject'
             },
+            // Backup TURN servers (numb.viagenie.ca)
             {
-                urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-                username: 'openrelayproject',
-                credential: 'openrelayproject'
+                urls: 'turn:numb.viagenie.ca',
+                username: 'webrtc@live.com',
+                credential: 'muazkh'
+            },
+            {
+                urls: 'turn:numb.viagenie.ca:3478?transport=tcp',
+                username: 'webrtc@live.com',
+                credential: 'muazkh'
             }
         );
 
