@@ -18,23 +18,26 @@ const peerConnectionConfig = {
     { 'urls': 'stun:stun.l.google.com:19302' },
     { 'urls': 'stun:stun1.l.google.com:19302' },
     { 'urls': 'stun:stun2.l.google.com:19302' },
-    { 'urls': 'stun:stun3.l.google.com:19302' },
-    { 'urls': 'stun:stun4.l.google.com:19302' },
-    // Free TURN servers from Open Relay Project
+    // Metered TURN servers (free tier - more reliable)
     {
-      'urls': 'turn:openrelay.metered.ca:80',
-      'username': 'openrelayproject',
-      'credential': 'openrelayproject'
+      'urls': 'turn:a.relay.metered.ca:80',
+      'username': 'e8dd65b92a0bdd2b1b009b70',
+      'credential': '6V7I0Z9lkVotwbIz'
     },
     {
-      'urls': 'turn:openrelay.metered.ca:443',
-      'username': 'openrelayproject',
-      'credential': 'openrelayproject'
+      'urls': 'turn:a.relay.metered.ca:80?transport=tcp',
+      'username': 'e8dd65b92a0bdd2b1b009b70',
+      'credential': '6V7I0Z9lkVotwbIz'
     },
     {
-      'urls': 'turn:openrelay.metered.ca:443?transport=tcp',
-      'username': 'openrelayproject',
-      'credential': 'openrelayproject'
+      'urls': 'turn:a.relay.metered.ca:443',
+      'username': 'e8dd65b92a0bdd2b1b009b70',
+      'credential': '6V7I0Z9lkVotwbIz'
+    },
+    {
+      'urls': 'turn:a.relay.metered.ca:443?transport=tcp',
+      'username': 'e8dd65b92a0bdd2b1b009b70',
+      'credential': '6V7I0Z9lkVotwbIz'
     }
   ],
   'iceCandidatePoolSize': 10
@@ -500,11 +503,37 @@ export default function VideoMeet() {
 
           // Handle connection state changes
           connectionsRef.current[socketListId].onconnectionstatechange = () => {
-            console.log("Connection state for", socketListId, ":", connectionsRef.current[socketListId].connectionState);
+            const state = connectionsRef.current[socketListId]?.connectionState;
+            console.log("Connection state for", socketListId, ":", state);
+
+            // Handle failed connection - attempt ICE restart
+            if (state === 'failed') {
+              console.log("Connection failed for", socketListId, "- attempting ICE restart");
+              connectionsRef.current[socketListId].restartIce();
+
+              // Create a new offer with ICE restart
+              connectionsRef.current[socketListId].createOffer({ iceRestart: true })
+                .then((description) => {
+                  connectionsRef.current[socketListId].setLocalDescription(description)
+                    .then(() => {
+                      console.log("ICE restart offer sent for:", socketListId);
+                      socketRef.current.emit("signal", socketListId, JSON.stringify({ "sdp": connectionsRef.current[socketListId].localDescription }));
+                    })
+                    .catch(e => console.error("Error setting local description for ICE restart:", e));
+                })
+                .catch(e => console.error("Error creating ICE restart offer:", e));
+            }
           };
 
           connectionsRef.current[socketListId].oniceconnectionstatechange = () => {
-            console.log("ICE connection state for", socketListId, ":", connectionsRef.current[socketListId].iceConnectionState);
+            const state = connectionsRef.current[socketListId]?.iceConnectionState;
+            console.log("ICE connection state for", socketListId, ":", state);
+
+            // Also handle ICE disconnected/failed states
+            if (state === 'failed') {
+              console.log("ICE connection failed for", socketListId, "- attempting restart");
+              connectionsRef.current[socketListId].restartIce();
+            }
           };
 
           // Add local tracks to the peer connection
@@ -525,22 +554,49 @@ export default function VideoMeet() {
         }
       });
 
-      // If this is the newly joined user, create offers to all existing users
+      // Determine who creates the offer using "polite peer" pattern
+      // The peer with the lexicographically smaller socket ID creates the offer
+      // This avoids "glare" (both sides creating offers simultaneously)
       if (id === socketIdRef.current) {
-        console.log("This user just joined. Creating offers for existing users...");
-        for (let id2 in connectionsRef.current) {
-          if (id2 === socketIdRef.current) continue;
+        // This user just joined - create offers only to users with higher socket IDs
+        console.log("This user just joined. Creating offers for peers with higher socket IDs...");
+        for (let peerId in connectionsRef.current) {
+          if (peerId === socketIdRef.current) continue;
 
-          connectionsRef.current[id2].createOffer().then((description) => {
-            connectionsRef.current[id2].setLocalDescription(description).then(() => {
-              console.log("Offer created and set for:", id2);
-              socketRef.current.emit("signal", id2, JSON.stringify({ "sdp": connectionsRef.current[id2].localDescription }));
+          // Only create offer if our ID is smaller (we are the "impolite" peer)
+          if (socketIdRef.current < peerId) {
+            console.log("Creating offer for:", peerId, "(our ID is smaller)");
+            connectionsRef.current[peerId].createOffer().then((description) => {
+              connectionsRef.current[peerId].setLocalDescription(description).then(() => {
+                console.log("Offer created and set for:", peerId);
+                socketRef.current.emit("signal", peerId, JSON.stringify({ "sdp": connectionsRef.current[peerId].localDescription }));
+              }).catch((e) => {
+                console.error("Error setting local description:", e);
+              });
+            }).catch((e) => {
+              console.error("Error creating offer:", e);
+            });
+          } else {
+            console.log("Waiting for offer from:", peerId, "(their ID is smaller)");
+          }
+        }
+      } else {
+        // Existing user - a new user joined with ID = id
+        // Create offer only if our socket ID is smaller than the new user's ID
+        if (connectionsRef.current[id] && socketIdRef.current < id) {
+          console.log("Existing user creating offer for new user:", id, "(our ID is smaller)");
+          connectionsRef.current[id].createOffer().then((description) => {
+            connectionsRef.current[id].setLocalDescription(description).then(() => {
+              console.log("Offer created for new user:", id);
+              socketRef.current.emit("signal", id, JSON.stringify({ "sdp": connectionsRef.current[id].localDescription }));
             }).catch((e) => {
               console.error("Error setting local description:", e);
             });
           }).catch((e) => {
             console.error("Error creating offer:", e);
           });
+        } else if (connectionsRef.current[id]) {
+          console.log("Waiting for offer from new user:", id, "(their ID is smaller)");
         }
       }
     });
