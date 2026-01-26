@@ -140,10 +140,6 @@ const getTurnCredentials = async (req, res) => {
                 urls: 'turn:openrelay.metered.ca:443?transport=tcp',
                 username: 'openrelayproject',
                 credential: 'openrelayproject'
-            },
-            // Twilio STUN (alternative)
-            {
-                urls: 'stun:global.stun.twilio.com:3478?transport=udp'
             }
         );
 
