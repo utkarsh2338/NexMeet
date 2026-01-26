@@ -120,6 +120,27 @@ export default function VideoMeet() {
   const remoteStreamsRef = useRef({}); // Track which socket IDs already have video entries to prevent duplicates
   const pendingIceCandidatesRef = useRef({}); // Queue ICE candidates until remote description is set
 
+  // Helper functions for creating dummy media streams
+  const silence = () => {
+    const ctx = new AudioContext();
+    const oscillator = ctx.createOscillator();
+    const dst = oscillator.connect(ctx.createMediaStreamDestination());
+    oscillator.start();
+    ctx.resume();
+    return Object.assign(dst.stream.getAudioTracks()[0], { enabled: false });
+  };
+
+  const black = ({ width = 640, height = 480 } = {}) => {
+    let canvas = Object.assign(document.createElement('canvas'), { width, height });
+    canvas.getContext('2d').fillRect(0, 0, width, height);
+    let stream = canvas.captureStream();
+    return Object.assign(stream.getVideoTracks()[0], { enabled: false });
+  };
+
+  const createBlackSilenceStream = () => {
+    return new MediaStream([black(), silence()]);
+  };
+
   const getpermissions = async () => {
     try {
       // Check video availability
@@ -146,19 +167,30 @@ export default function VideoMeet() {
       }
 
       // Get initial media stream for preview
-      const userMediaStream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true
-      });
+      try {
+        const userMediaStream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true
+        });
 
-      if (userMediaStream) {
-        window.localStream = userMediaStream;
+        if (userMediaStream) {
+          window.localStream = userMediaStream;
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = userMediaStream;
+          }
+        }
+      } catch (err) {
+        console.error("Error accessing media devices.", err);
+        // CRITICAL: If permissions denied, create black/silence stream immediately
+        // This ensures window.localStream is NEVER undefined
+        console.log("Creating black/silence stream as fallback");
+        window.localStream = createBlackSilenceStream();
         if (localVideoRef.current) {
-          localVideoRef.current.srcObject = userMediaStream;
+          localVideoRef.current.srcObject = window.localStream;
         }
       }
     } catch (err) {
-      console.error("Error accessing media devices.", err);
+      console.error("Error in getpermissions.", err);
     }
   };
 
@@ -220,9 +252,8 @@ export default function VideoMeet() {
       } catch (err) {
         console.error("Error stopping tracks.", err);
       }
-      // todo blacksilence
-      let blackSilence = (...args) => new MediaStream([black(...args), silence()]);
-      window.localStream = blackSilence();
+      // Replace with black/silence stream
+      window.localStream = createBlackSilenceStream();
       localVideoRef.current.srcObject = window.localStream;
       for (let id in connectionsRef.current) {
         const senders = connectionsRef.current[id].getSenders();
@@ -250,21 +281,6 @@ export default function VideoMeet() {
 
   }
 
-  const silence = () => {
-    const ctx = new AudioContext();
-    const oscillator = ctx.createOscillator();
-    const dst = oscillator.connect(ctx.createMediaStreamDestination());
-    oscillator.start();
-    ctx.resume();
-    return Object.assign(dst.stream.getAudioTracks()[0], { enabled: false });
-  };
-
-  const black = ({ width = 640, height = 480 } = {}) => {
-    let canvas = Object.assign(document.createElement('canvas'), { width, height });
-    canvas.getContext('2d').fillRect(0, 0, width, height);
-    let stream = canvas.captureStream();
-    return Object.assign(stream.getVideoTracks()[0], { enabled: false });
-  }
   const getUserMedia = () => {
     if ((video !== undefined && videoAvailable) || (audio !== undefined && audioAvailable)) {
       navigator.mediaDevices.getUserMedia({
@@ -603,9 +619,9 @@ export default function VideoMeet() {
             });
           }
           else {
-            console.log("No local stream yet, creating black silence for:", socketListId);
-            let blackSilence = (...args) => new MediaStream([black(...args), silence()]);
-            window.localStream = blackSilence();
+            console.warn("No local stream available for:", socketListId, "- this should not happen!");
+            // Fallback: create black/silence stream if somehow window.localStream is still undefined
+            window.localStream = createBlackSilenceStream();
             window.localStream.getTracks().forEach(track => {
               connectionsRef.current[socketListId].addTrack(track, window.localStream);
             });
