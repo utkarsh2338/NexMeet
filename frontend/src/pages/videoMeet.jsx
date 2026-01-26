@@ -11,41 +11,39 @@ import { useApp } from '../context/AppContext'
 
 const server = import.meta.env.VITE_BACKEND_SERVER_URL || "http://localhost:4000";
 
-// ICE servers configuration with STUN and TURN servers
-// TURN servers are essential for relaying media when direct peer-to-peer connection fails
-const peerConnectionConfig = {
-  'iceServers': [
-    { 'urls': 'stun:stun.l.google.com:19302' },
-    { 'urls': 'stun:stun1.l.google.com:19302' },
-    { 'urls': 'stun:stun2.l.google.com:19302' },
-    // Metered TURN servers (free tier - more reliable)
-    {
-      'urls': 'turn:a.relay.metered.ca:80',
-      'username': 'e8dd65b92a0bdd2b1b009b70',
-      'credential': '6V7I0Z9lkVotwbIz'
-    },
-    {
-      'urls': 'turn:a.relay.metered.ca:80?transport=tcp',
-      'username': 'e8dd65b92a0bdd2b1b009b70',
-      'credential': '6V7I0Z9lkVotwbIz'
-    },
-    {
-      'urls': 'turn:a.relay.metered.ca:443',
-      'username': 'e8dd65b92a0bdd2b1b009b70',
-      'credential': '6V7I0Z9lkVotwbIz'
-    },
-    {
-      'urls': 'turn:a.relay.metered.ca:443?transport=tcp',
-      'username': 'e8dd65b92a0bdd2b1b009b70',
-      'credential': '6V7I0Z9lkVotwbIz'
-    }
+// Default ICE configuration with STUN servers only (fallback)
+const getDefaultIceConfig = () => ({
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:global.stun.twilio.com:3478' },
   ],
-  'iceCandidatePoolSize': 10
+  iceCandidatePoolSize: 10
+});
+
+// Fetch ICE server configuration from backend (includes TURN servers if configured)
+const fetchIceServers = async () => {
+  try {
+    const response = await fetch(`${server}/api/v1/meeting/turn-credentials`);
+    if (response.ok) {
+      const config = await response.json();
+      console.log("ICE servers fetched from backend:", config.iceServers?.length || 0, "servers");
+      return {
+        iceServers: config.iceServers || getDefaultIceConfig().iceServers,
+        iceCandidatePoolSize: config.iceCandidatePoolSize || 10
+      };
+    }
+  } catch (error) {
+    console.warn("Failed to fetch ICE servers from backend, using defaults:", error.message);
+  }
+  return getDefaultIceConfig();
 };
 
-// stun servers are lightweight servers running on the public internet which return the 
-// IP address of the requester. This is used to get the public IP address of a user
-// behind a NAT.
+// This will be populated when the component mounts
+let peerConnectionConfig = getDefaultIceConfig();
 
 // Memoized remote video component to prevent unnecessary re-renders
 const RemoteVideo = React.memo(({ video, index }) => {
@@ -157,6 +155,12 @@ export default function VideoMeet() {
   };
 
   useEffect(() => {
+    // Fetch ICE servers configuration on mount
+    const initIceServers = async () => {
+      peerConnectionConfig = await fetchIceServers();
+      console.log("ICE configuration initialized");
+    };
+    initIceServers();
     getpermissions();
   }, []);
 

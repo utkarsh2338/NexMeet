@@ -3,10 +3,14 @@ import {
     getUserMeetings,
     getMeetingByCode,
     getMeetingHistory,
-    deleteOldMeetings
+    deleteOldMeetings,
+    getTurnCredentials
 } from "../controllers/meeting.controller.js";
 
 const router = Router();
+
+// Get TURN server credentials for WebRTC
+router.get("/turn-credentials", getTurnCredentials);
 
 // Get all meetings for a user
 router.get("/user/:clerkUserId", getUserMeetings);

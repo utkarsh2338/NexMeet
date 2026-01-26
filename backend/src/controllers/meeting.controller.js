@@ -110,9 +110,60 @@ const deleteOldMeetings = async (req, res) => {
     }
 };
 
+// Get TURN server credentials for WebRTC
+const getTurnCredentials = async (req, res) => {
+    try {
+        // STUN servers (free, reliable)
+        const iceServers = [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun3.l.google.com:19302' },
+            { urls: 'stun:global.stun.twilio.com:3478' },
+        ];
+
+        // Try to fetch TURN credentials from Metered.ca if configured
+        const meteredApiKey = process.env.METERED_API_KEY;
+        const meteredAppName = process.env.METERED_APP_NAME;
+
+        if (meteredApiKey && meteredAppName) {
+            try {
+                const response = await fetch(
+                    `https://${meteredAppName}.metered.live/api/v1/turn/credentials?apiKey=${meteredApiKey}`
+                );
+
+                if (response.ok) {
+                    const turnServers = await response.json();
+                    iceServers.push(...turnServers);
+                    console.log("Fetched TURN credentials from Metered.ca:", turnServers.length, "servers");
+                } else {
+                    console.warn("Metered API returned status:", response.status);
+                }
+            } catch (error) {
+                console.warn("Failed to fetch Metered TURN credentials:", error.message);
+            }
+        } else {
+            console.log("No METERED_API_KEY configured - using STUN only");
+            console.log("For NAT traversal, sign up at https://www.metered.ca/ for free TURN servers");
+        }
+
+        res.status(httpStatus.OK).json({
+            success: true,
+            iceServers,
+            iceCandidatePoolSize: 10
+        });
+    } catch (error) {
+        console.error("Error getting TURN credentials:", error);
+        res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
+            message: "Failed to get TURN credentials"
+        });
+    }
+};
+
 export {
     getUserMeetings,
     getMeetingByCode,
     getMeetingHistory,
-    deleteOldMeetings
+    deleteOldMeetings,
+    getTurnCredentials
 };
