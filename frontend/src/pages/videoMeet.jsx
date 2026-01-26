@@ -10,11 +10,34 @@ import { ConnectionStatus, LoadingOverlay } from '../components/LoadingStates'
 import { useApp } from '../context/AppContext'
 
 const server = import.meta.env.VITE_BACKEND_SERVER_URL || "http://localhost:4000";
+
+// ICE servers configuration with STUN and TURN servers
+// TURN servers are essential for relaying media when direct peer-to-peer connection fails
 const peerConnectionConfig = {
   'iceServers': [
-    { 'urls': 'stun:stun.services.mozilla.com' },
     { 'urls': 'stun:stun.l.google.com:19302' },
-  ]
+    { 'urls': 'stun:stun1.l.google.com:19302' },
+    { 'urls': 'stun:stun2.l.google.com:19302' },
+    { 'urls': 'stun:stun3.l.google.com:19302' },
+    { 'urls': 'stun:stun4.l.google.com:19302' },
+    // Free TURN servers from Open Relay Project
+    {
+      'urls': 'turn:openrelay.metered.ca:80',
+      'username': 'openrelayproject',
+      'credential': 'openrelayproject'
+    },
+    {
+      'urls': 'turn:openrelay.metered.ca:443',
+      'username': 'openrelayproject',
+      'credential': 'openrelayproject'
+    },
+    {
+      'urls': 'turn:openrelay.metered.ca:443?transport=tcp',
+      'username': 'openrelayproject',
+      'credential': 'openrelayproject'
+    }
+  ],
+  'iceCandidatePoolSize': 10
 };
 
 // stun servers are lightweight servers running on the public internet which return the 
@@ -86,6 +109,7 @@ export default function VideoMeet() {
   const screenStreamRef = useRef(null);
   const chatMessagesRef = useRef(null);
   const remoteStreamsRef = useRef({}); // Track which socket IDs already have video entries to prevent duplicates
+  const pendingIceCandidatesRef = useRef({}); // Queue ICE candidates until remote description is set
 
   const getpermissions = async () => {
     try {
@@ -259,11 +283,29 @@ export default function VideoMeet() {
 
   const gotMessageFromServer = (fromId, message) => {
     const signal = JSON.parse(message);
+
     if (fromId !== socketIdRef.current) {
+      // Ensure connection exists
+      if (!connectionsRef.current[fromId]) {
+        console.warn("No connection exists for:", fromId, "- ignoring signal");
+        return;
+      }
+
       if (signal.sdp) {
         connectionsRef.current[fromId].setRemoteDescription(new RTCSessionDescription(signal.sdp))
           .then(() => {
             console.log("Remote description set for:", fromId);
+
+            // Process any queued ICE candidates now that remote description is set
+            if (pendingIceCandidatesRef.current[fromId] && pendingIceCandidatesRef.current[fromId].length > 0) {
+              console.log(`Processing ${pendingIceCandidatesRef.current[fromId].length} queued ICE candidates for:`, fromId);
+              pendingIceCandidatesRef.current[fromId].forEach(candidate => {
+                connectionsRef.current[fromId].addIceCandidate(new RTCIceCandidate(candidate))
+                  .catch(e => console.error("Error adding queued ice candidate:", e));
+              });
+              pendingIceCandidatesRef.current[fromId] = []; // Clear the queue
+            }
+
             if (signal.sdp.type === 'offer') {
               connectionsRef.current[fromId].createAnswer()
                 .then((description) => {
@@ -279,13 +321,18 @@ export default function VideoMeet() {
           })
           .catch(e => console.error("Error setting remote description:", e));
       } else if (signal.ice) {
-        // Add ICE candidate only if connection exists and remote description is set
-        if (connectionsRef.current[fromId] && connectionsRef.current[fromId].remoteDescription) {
+        // Add ICE candidate only if remote description is already set
+        if (connectionsRef.current[fromId].remoteDescription && connectionsRef.current[fromId].remoteDescription.type) {
+          console.log("Adding ICE candidate for:", fromId);
           connectionsRef.current[fromId].addIceCandidate(new RTCIceCandidate(signal.ice))
             .catch(e => console.error("Error adding ice candidate:", e));
         } else {
           // Queue ICE candidates if remote description not yet set
-          console.log("Remote description not yet set for", fromId, "- candidate may be processed after SDP");
+          console.log("Queuing ICE candidate for", fromId, "- remote description not yet set");
+          if (!pendingIceCandidatesRef.current[fromId]) {
+            pendingIceCandidatesRef.current[fromId] = [];
+          }
+          pendingIceCandidatesRef.current[fromId].push(signal.ice);
         }
       }
     }
@@ -377,6 +424,7 @@ export default function VideoMeet() {
       console.log('User left:', id);
       setVideos((videos) => videos.filter(video => video.socketId !== id));
       delete remoteStreamsRef.current[id]; // Clean up the tracking ref
+      delete pendingIceCandidatesRef.current[id]; // Clean up pending ICE candidates
       if (connectionsRef.current[id]) {
         connectionsRef.current[id].close();
         delete connectionsRef.current[id];
@@ -501,6 +549,7 @@ export default function VideoMeet() {
       console.log('User disconnected:', socketId, 'Time connected:', timeConnected);
       setVideos((videos) => videos.filter(video => video.socketId !== socketId));
       delete remoteStreamsRef.current[socketId]; // Clean up the tracking ref
+      delete pendingIceCandidatesRef.current[socketId]; // Clean up pending ICE candidates
       if (connectionsRef.current[socketId]) {
         connectionsRef.current[socketId].close();
         delete connectionsRef.current[socketId];
@@ -684,6 +733,9 @@ export default function VideoMeet() {
 
       // Clear remote streams tracking
       remoteStreamsRef.current = {};
+
+      // Clear pending ICE candidates
+      pendingIceCandidatesRef.current = {};
 
       // Clear reconnect timeout
       if (reconnectTimeoutRef.current) {
