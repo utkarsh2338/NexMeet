@@ -30,11 +30,19 @@ const fetchIceServers = async () => {
     const response = await fetch(`${server}/api/v1/meeting/turn-credentials`);
     if (response.ok) {
       const config = await response.json();
-      console.log("ICE servers fetched from backend:", config.iceServers?.length || 0, "servers");
+      const turnServers = config.iceServers?.filter(s => s.urls?.includes('turn:')) || [];
+      console.log("ICE servers fetched from backend:", config.iceServers?.length || 0, "total,", turnServers.length, "TURN servers");
+      if (turnServers.length === 0) {
+        console.warn("⚠️ No TURN servers available - connection may fail behind symmetric NAT");
+      } else {
+        console.log("✅ TURN servers available for NAT traversal");
+      }
       return {
         iceServers: config.iceServers || getDefaultIceConfig().iceServers,
         iceCandidatePoolSize: config.iceCandidatePoolSize || 10
       };
+    } else {
+      console.warn("Failed to fetch ICE servers, status:", response.status);
     }
   } catch (error) {
     console.warn("Failed to fetch ICE servers from backend, using defaults:", error.message);
@@ -298,40 +306,45 @@ export default function VideoMeet() {
         return;
       }
 
+      const pc = connectionsRef.current[fromId];
+
       if (signal.sdp) {
-        connectionsRef.current[fromId].setRemoteDescription(new RTCSessionDescription(signal.sdp))
-          .then(() => {
-            console.log("Remote description set for:", fromId);
+        const description = new RTCSessionDescription(signal.sdp);
 
-            // Process any queued ICE candidates now that remote description is set
-            if (pendingIceCandidatesRef.current[fromId] && pendingIceCandidatesRef.current[fromId].length > 0) {
-              console.log(`Processing ${pendingIceCandidatesRef.current[fromId].length} queued ICE candidates for:`, fromId);
-              pendingIceCandidatesRef.current[fromId].forEach(candidate => {
-                connectionsRef.current[fromId].addIceCandidate(new RTCIceCandidate(candidate))
-                  .catch(e => console.error("Error adding queued ice candidate:", e));
-              });
-              pendingIceCandidatesRef.current[fromId] = []; // Clear the queue
-            }
+        // Handle offer/answer based on current signaling state
+        // This implements "perfect negotiation" to avoid glare
+        const isOffer = description.type === 'offer';
+        const isAnswer = description.type === 'answer';
 
-            if (signal.sdp.type === 'offer') {
-              connectionsRef.current[fromId].createAnswer()
-                .then((description) => {
-                  connectionsRef.current[fromId].setLocalDescription(description)
-                    .then(() => {
-                      console.log("Local answer set for:", fromId);
-                      socketRef.current.emit("signal", fromId, JSON.stringify({ "sdp": connectionsRef.current[fromId].localDescription }));
-                    })
-                    .catch(e => console.error("Error setting local description:", e));
-                })
-                .catch(e => console.error("Error creating answer:", e));
-            }
-          })
-          .catch(e => console.error("Error setting remote description:", e));
+        // For answers, only set if we're expecting one (have-local-offer state)
+        if (isAnswer && pc.signalingState !== 'have-local-offer') {
+          console.warn("Ignoring unexpected answer for:", fromId, "- state:", pc.signalingState);
+          return;
+        }
+
+        // For offers, we might need to rollback if we also sent an offer (glare)
+        if (isOffer && pc.signalingState === 'have-local-offer') {
+          // Glare situation - both sides sent offers
+          // The peer with lexicographically smaller ID wins (becomes the offerer)
+          const weArePolite = socketIdRef.current > fromId;
+          if (weArePolite) {
+            console.log("Glare detected! Rolling back our offer for:", fromId);
+            pc.setLocalDescription({ type: 'rollback' })
+              .then(() => handleRemoteDescription(pc, description, fromId))
+              .catch(e => console.error("Error rolling back:", e));
+            return;
+          } else {
+            console.log("Glare detected! Ignoring their offer (we have priority):", fromId);
+            return;
+          }
+        }
+
+        handleRemoteDescription(pc, description, fromId);
       } else if (signal.ice) {
         // Add ICE candidate only if remote description is already set
-        if (connectionsRef.current[fromId].remoteDescription && connectionsRef.current[fromId].remoteDescription.type) {
+        if (pc.remoteDescription && pc.remoteDescription.type) {
           console.log("Adding ICE candidate for:", fromId);
-          connectionsRef.current[fromId].addIceCandidate(new RTCIceCandidate(signal.ice))
+          pc.addIceCandidate(new RTCIceCandidate(signal.ice))
             .catch(e => console.error("Error adding ice candidate:", e));
         } else {
           // Queue ICE candidates if remote description not yet set
@@ -343,6 +356,39 @@ export default function VideoMeet() {
         }
       }
     }
+  };
+
+  // Helper function to handle setting remote description
+  const handleRemoteDescription = (pc, description, fromId) => {
+    pc.setRemoteDescription(description)
+      .then(() => {
+        console.log("Remote description set for:", fromId, "type:", description.type);
+
+        // Process any queued ICE candidates now that remote description is set
+        if (pendingIceCandidatesRef.current[fromId] && pendingIceCandidatesRef.current[fromId].length > 0) {
+          console.log(`Processing ${pendingIceCandidatesRef.current[fromId].length} queued ICE candidates for:`, fromId);
+          pendingIceCandidatesRef.current[fromId].forEach(candidate => {
+            pc.addIceCandidate(new RTCIceCandidate(candidate))
+              .catch(e => console.error("Error adding queued ice candidate:", e));
+          });
+          pendingIceCandidatesRef.current[fromId] = []; // Clear the queue
+        }
+
+        // If we received an offer, create and send an answer
+        if (description.type === 'offer') {
+          pc.createAnswer()
+            .then((answer) => {
+              pc.setLocalDescription(answer)
+                .then(() => {
+                  console.log("Local answer set for:", fromId);
+                  socketRef.current.emit("signal", fromId, JSON.stringify({ "sdp": pc.localDescription }));
+                })
+                .catch(e => console.error("Error setting local description:", e));
+            })
+            .catch(e => console.error("Error creating answer:", e));
+        }
+      })
+      .catch(e => console.error("Error setting remote description:", e, "state:", pc.signalingState));
   };
 
   const addMessage = (data, sender, socketIdSender) => {
@@ -507,37 +553,46 @@ export default function VideoMeet() {
 
           // Handle connection state changes
           connectionsRef.current[socketListId].onconnectionstatechange = () => {
-            const state = connectionsRef.current[socketListId]?.connectionState;
+            const pc = connectionsRef.current[socketListId];
+            if (!pc) return;
+
+            const state = pc.connectionState;
             console.log("Connection state for", socketListId, ":", state);
 
-            // Handle failed connection - attempt ICE restart
-            if (state === 'failed') {
-              console.log("Connection failed for", socketListId, "- attempting ICE restart");
-              connectionsRef.current[socketListId].restartIce();
+            // Handle failed connection - attempt ICE restart only if we're the "impolite" peer
+            // (the one with the smaller socket ID) to avoid both sides restarting
+            if (state === 'failed' && socketIdRef.current < socketListId) {
+              console.log("Connection failed for", socketListId, "- attempting ICE restart (we are impolite peer)");
 
-              // Create a new offer with ICE restart
-              connectionsRef.current[socketListId].createOffer({ iceRestart: true })
-                .then((description) => {
-                  connectionsRef.current[socketListId].setLocalDescription(description)
-                    .then(() => {
-                      console.log("ICE restart offer sent for:", socketListId);
-                      socketRef.current.emit("signal", socketListId, JSON.stringify({ "sdp": connectionsRef.current[socketListId].localDescription }));
-                    })
-                    .catch(e => console.error("Error setting local description for ICE restart:", e));
-                })
-                .catch(e => console.error("Error creating ICE restart offer:", e));
+              // Only restart if in stable state
+              if (pc.signalingState === 'stable') {
+                pc.restartIce();
+                pc.createOffer({ iceRestart: true })
+                  .then((description) => {
+                    return pc.setLocalDescription(description);
+                  })
+                  .then(() => {
+                    console.log("ICE restart offer sent for:", socketListId);
+                    socketRef.current.emit("signal", socketListId, JSON.stringify({ "sdp": pc.localDescription }));
+                  })
+                  .catch(e => console.error("Error during ICE restart:", e));
+              } else {
+                console.log("Cannot restart ICE - signaling state:", pc.signalingState);
+              }
+            } else if (state === 'failed') {
+              console.log("Connection failed for", socketListId, "- waiting for peer to restart ICE");
             }
           };
 
           connectionsRef.current[socketListId].oniceconnectionstatechange = () => {
-            const state = connectionsRef.current[socketListId]?.iceConnectionState;
+            const pc = connectionsRef.current[socketListId];
+            if (!pc) return;
+
+            const state = pc.iceConnectionState;
             console.log("ICE connection state for", socketListId, ":", state);
 
-            // Also handle ICE disconnected/failed states
-            if (state === 'failed') {
-              console.log("ICE connection failed for", socketListId, "- attempting restart");
-              connectionsRef.current[socketListId].restartIce();
-            }
+            // Don't attempt restart from here - let onconnectionstatechange handle it
+            // This avoids duplicate restart attempts
           };
 
           // Add local tracks to the peer connection
